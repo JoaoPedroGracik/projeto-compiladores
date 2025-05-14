@@ -182,6 +182,7 @@ class Parser:
             raise SyntaxError(f"Erro sintático: token inesperado {token[0]}")
 
 # Impressao textual
+
 def print_ast(node, level=0):
     indent = "  " * level
     if isinstance(node, tuple):
@@ -193,6 +194,7 @@ def print_ast(node, level=0):
         return f"{indent}{node}\n"
 
 # Geracao grafica da arvore
+
 def build_graphviz_ast(node, graph=None, parent=None, counter=[0]):
     if graph is None:
         graph = Digraph()
@@ -236,25 +238,25 @@ class SemanticAnalyzer:
     def __init__(self):
         self.errors = []
 
-        def get_type(self, node, table):
-            if node[0] == 'INTEGER':
-                return 'int'
-            elif node[0] == 'BOOLEAN':
-                return 'bool'
-            elif node[0] == 'IDENTIFIER':
-                var_type = table.lookup(node[1])
-                return var_type if var_type else 'undef'
-            elif node[0] == 'BIN_OP':
-                left_type = self.get_type(node[2], table)
-                right_type = self.get_type(node[3], table)
-                if left_type != right_type:
-                    self.errors.append(
-                        f"Erro semântico: tipos incompatíveis em operação binária: '{left_type}' e '{right_type}'."
-                    )
-                    return 'undef'
-                return left_type
-            elif node[0] == 'ASSIGN':
-                return self.get_type(node[2], table)
+    def get_type(self, node, table):
+        if node[0] == 'INTEGER':
+            return 'int'
+        elif node[0] == 'BOOLEAN':
+            return 'bool'
+        elif node[0] == 'IDENTIFIER':
+            var_type = table.lookup(node[1])
+            return var_type if var_type else 'undef'
+        elif node[0] == 'BIN_OP':
+            left_type = self.get_type(node[2], table)
+            right_type = self.get_type(node[3], table)
+            if left_type != right_type:
+                self.errors.append(
+                    f"Erro semântico: tipos incompatíveis em operação binária: '{left_type}' e '{right_type}'."
+                )
+                return 'undef'
+            return left_type
+        elif node[0] == 'ASSIGN':
+            return self.get_type(node[2], table)
         return 'undef'
 
     def analyze(self, node, table=None):
@@ -314,7 +316,9 @@ class SemanticAnalyzer:
             elif kind == 'INTEGER':
                 pass
 
+
 # Funcoes GUI
+
 def analyze_code(code):
     try:
         tokens = lexer(code)
