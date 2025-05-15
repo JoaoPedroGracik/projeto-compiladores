@@ -1,0 +1,6 @@
+Verificar análise semântica
+- Declaração não aceita atribuições
+- string não funciona 
+- Não aceita booleano 
+- Verificações de tipos no meio da análise aritmética
+- tipos dos parâmetros de função

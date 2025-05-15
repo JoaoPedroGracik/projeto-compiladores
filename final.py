@@ -182,7 +182,6 @@ class Parser:
             raise SyntaxError(f"Erro sintático: token inesperado {token[0]}")
 
 # Impressao textual
-
 def print_ast(node, level=0):
     indent = "  " * level
     if isinstance(node, tuple):
@@ -194,7 +193,6 @@ def print_ast(node, level=0):
         return f"{indent}{node}\n"
 
 # Geracao grafica da arvore
-
 def build_graphviz_ast(node, graph=None, parent=None, counter=[0]):
     if graph is None:
         graph = Digraph()
@@ -215,7 +213,6 @@ def build_graphviz_ast(node, graph=None, parent=None, counter=[0]):
     return graph
 
 # ---------------------------- Analisador Semântico ----------------------------
-
 class SymbolTable:
     def __init__(self, parent=None):
         self.symbols = {}
@@ -316,9 +313,7 @@ class SemanticAnalyzer:
             elif kind == 'INTEGER':
                 pass
 
-
 # Funcoes GUI
-
 def analyze_code(code):
     try:
         tokens = lexer(code)
