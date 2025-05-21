@@ -4,3 +4,29 @@ Verificar análise semântica
 - Não aceita booleano 
 - Verificações de tipos no meio da análise aritmética
 - tipos dos parâmetros de função
+
+---------------------------------------------------------
+
+Esta aula:
+
+Estrutura de Dados para AST: 
+a.	Crie classes ou structs para nós (ex.: Nó de Operador, Nó de Variável). 
+
+2. Percurso da AST: 
+a. Use recursão em pós-ordem para visitar nós.
+
+3. Geração de TAC: 
+a. Para cada nó operador, gere uma instrução TAC. 
+
+4. Mantenha um contador para variáveis temporárias (t1, t2, ...). 
+a. Armazenamento: 
+
+5. Armazene instruções TAC em uma lista ou arquivo
+
+- Alocação Aritmética
+- Alocação Registradores
+- Atribuição Variáveis
+
+---------------------------------------------------------
+
+Gerar Assembly RISCV do TAC gerado
