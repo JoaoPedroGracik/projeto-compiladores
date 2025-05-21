@@ -23,6 +23,7 @@ a. Armazenamento:
 
 5. Armazene instruções TAC em uma lista ou arquivo
 
+Deve ter:
 - Alocação Aritmética
 - Alocação Registradores
 - Atribuição Variáveis
