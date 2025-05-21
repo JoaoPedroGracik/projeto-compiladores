@@ -27,8 +27,10 @@ TOKEN_REGEX = [
     (r';', 'SEMICOLON'),
     (r'\(', 'LPAREN'),
     (r'\)', 'RPAREN'),
+    (r',', 'COMMA'),
     (r'\{', 'LBRACE'),
     (r'\}', 'RBRACE'),
+    (r'"[^"]*"', 'STRING'),
     (r'\s+', None),
 ]
 
@@ -65,8 +67,67 @@ class Parser:
         else:
             raise SyntaxError(f"Erro sintático: Esperado {token_type} mas encontrado {self.current_token()[0]}")
 
+
+    def parse_funcao(self):
+        # Suporte apenas a tipo 'int' por enquanto
+        tipo = self.current_token()[1]
+        self.eat('INT')
+
+        nome = self.current_token()[1]
+        self.eat('IDENTIFIER')
+
+        self.eat('LPAREN')
+        params = self.parse_parametros()
+        self.eat('RPAREN')
+
+        bloco = self.parse_bloco()
+
+        return ('FUNCAO', tipo, nome, params, bloco)
+
+    def parse_parametros(self):
+        params = []
+        if self.current_token()[0] in ('INT', 'IDENTIFIER'):
+
+            while True:
+                if self.current_token()[0] == 'INT':
+                    tipo = 'int'
+                    self.eat('INT')
+                elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] in ('string', 'bool'):
+                    tipo = self.current_token()[1]
+                    self.eat('IDENTIFIER')
+                else:
+                    raise SyntaxError("Parâmetro com tipo inválido.")
+
+                nome = self.current_token()[1]
+                self.eat('IDENTIFIER')
+
+                params.append((tipo, nome))
+
+                if self.current_token()[0] != 'COMMA':
+                    break
+                self.eat('COMMA')
+
+        return params
+
+
     def parse_programa(self):
-        return ('PROGRAMA', *self.parse_lista_de_comandos())
+        elementos = []
+        while self.pos < len(self.tokens):
+            # Checa se é uma função ou uma variável
+            if self.current_token()[0] == 'INT' or (
+                self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] in ('string', 'bool')
+            ):
+                tipo_token = self.current_token()
+                next_token = self.tokens[self.pos + 2] if self.pos + 2 < len(self.tokens) else ('EOF', '')
+
+                # INT IDENTIFIER LPAREN → função
+                if next_token[0] == 'LPAREN':
+                    elementos.append(self.parse_funcao())
+                else:
+                    elementos.append(self.parse_comando())
+            else:
+                elementos.append(self.parse_comando())
+        return ('PROGRAMA', *elementos)
 
     def parse_lista_de_comandos(self):
         comandos = []
@@ -77,6 +138,8 @@ class Parser:
     def parse_comando(self):
         token = self.current_token()
         if token[0] == 'INT':
+            return self.parse_declaracao()
+        elif token[0] == 'IDENTIFIER' and token[1] in ('string', 'bool'):
             return self.parse_declaracao()
         elif token[0] == 'IF':
             return self.parse_if_comando()
@@ -90,11 +153,29 @@ class Parser:
             return self.parse_expressao_comando()
 
     def parse_declaracao(self):
-        self.eat('INT')
+        if self.current_token()[0] == 'INT':
+            tipo = 'int'
+            self.eat('INT')
+        elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] == 'string':
+            tipo = 'string'
+            self.eat('IDENTIFIER')
+        elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] == 'bool':
+            tipo = 'bool'
+            self.eat('IDENTIFIER')
+        else:
+            raise SyntaxError(f"Erro sintático: tipo '{self.current_token()[1]}' inválido.")
+
         var_name = self.current_token()[1]
         self.eat('IDENTIFIER')
-        self.eat('SEMICOLON')
-        return ('DECL', 'int', var_name)
+
+        if self.current_token()[0] == 'ASSIGN':
+            self.eat('ASSIGN')
+            expr = self.parse_expressao()
+            self.eat('SEMICOLON')
+            return ('DECL_ASSIGN', tipo, var_name, expr)
+        else:
+            self.eat('SEMICOLON')
+        return ('DECL', tipo, var_name)
 
     def parse_if_comando(self):
         self.eat('IF')
@@ -178,6 +259,12 @@ class Parser:
             expr = self.parse_expressao()
             self.eat('RPAREN')
             return expr
+        elif token[0] == 'STRING':
+            self.eat('STRING')
+            return ('STRING', token[1])
+        elif token[0] == 'BOOLEAN':
+            self.eat('BOOLEAN')
+            return ('BOOLEAN', token[1])
         else:
             raise SyntaxError(f"Erro sintático: token inesperado {token[0]}")
 
@@ -240,6 +327,8 @@ class SemanticAnalyzer:
             return 'int'
         elif node[0] == 'BOOLEAN':
             return 'bool'
+        elif node[0] == 'STRING':
+            return 'string'
         elif node[0] == 'IDENTIFIER':
             var_type = table.lookup(node[1])
             return var_type if var_type else 'undef'
@@ -251,7 +340,13 @@ class SemanticAnalyzer:
                     f"Erro semântico: tipos incompatíveis em operação binária: '{left_type}' e '{right_type}'."
                 )
                 return 'undef'
-            return left_type
+            if node[1] == 'PLUS' and left_type in ('int', 'string'):
+                return left_type
+            elif left_type in ('int', 'bool'):  # outras operações válidas
+                return left_type
+            else:
+                self.errors.append(f"Erro semântico: operação inválida com tipo '{left_type}'.")
+                return 'undef'
         elif node[0] == 'ASSIGN':
             return self.get_type(node[2], table)
         return 'undef'
@@ -268,11 +363,21 @@ class SemanticAnalyzer:
                 for subnode in node[1:]:
                     self.analyze(subnode, new_table)
 
-            elif kind == 'DECL':
+            elif kind in ('DECL', 'DECL_ASSIGN'):
+                tipo = node[1]
+                nome = node[2]
                 try:
-                    table.define(node[2], node[1])
+                    table.define(nome, tipo)
                 except ValueError as ve:
                     self.errors.append(str(ve))
+                if kind == 'DECL_ASSIGN':
+                    expr = node[3]
+                    valor_tipo = self.get_type(expr, table)
+                    if valor_tipo != tipo:
+                        self.errors.append(
+                            f"Erro semântico: atribuição de tipo '{valor_tipo}' à variável '{nome}' de tipo '{tipo}'."
+                        )
+                    self.analyze(expr, table)
 
             elif kind == 'EXPR':
                 self.analyze(node[1], table)
@@ -309,6 +414,41 @@ class SemanticAnalyzer:
                 var_name = node[1]
                 if not table.lookup(var_name):
                     self.errors.append(f"Erro semântico: variável '{var_name}' não declarada.")
+                    
+            elif kind == 'DECL_ASSIGN':
+                tipo = node[1]
+                nome = node[2]
+                expr = node[3]
+                try:
+                    table.define(nome, tipo)
+                except ValueError as ve:
+                    self.errors.append(str(ve))
+                valor_tipo = self.get_type(expr, table)
+                if valor_tipo != tipo:
+                    self.errors.append(
+                        f"Erro semântico: atribuição de tipo '{valor_tipo}' à variável '{nome}' de tipo '{tipo}'."
+                    )
+                self.analyze(expr, table)
+                
+            elif node[0] == 'STRING':
+                return 'string'
+            
+            elif kind == 'FUNCAO':
+                tipo_retorno = node[1]
+                nome_funcao = node[2]
+                parametros = node[3]
+                corpo = node[4]
+
+                # Criar escopo novo com os parâmetros
+                func_table = SymbolTable(table)
+                for param_tipo, param_nome in parametros:
+                    try:
+                        func_table.define(param_nome, param_tipo)
+                    except ValueError as ve:
+                        self.errors.append(str(ve))
+
+                # Analisar o corpo da função no novo escopo
+                self.analyze(corpo, func_table)
 
             elif kind == 'INTEGER':
                 pass
