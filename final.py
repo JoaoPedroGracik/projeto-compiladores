@@ -69,9 +69,14 @@ class Parser:
 
 
     def parse_funcao(self):
-        # Suporte apenas a tipo 'int' por enquanto
-        tipo = self.current_token()[1]
-        self.eat('INT')
+        if self.current_token()[0] == 'INT':
+            tipo = 'int'
+            self.eat('INT')
+        elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] in ('string', 'bool'):
+            tipo = self.current_token()[1]
+            self.eat('IDENTIFIER')
+        else:
+            raise SyntaxError(f"Erro sintático: tipo de função '{self.current_token()[1]}' inválido.")
 
         nome = self.current_token()[1]
         self.eat('IDENTIFIER')
@@ -249,8 +254,12 @@ class Parser:
     def parse_primaria(self):
         token = self.current_token()
         if token[0] == 'IDENTIFIER':
-            self.eat('IDENTIFIER')
-            return ('IDENTIFIER', token[1])
+            next_token = self.tokens[self.pos + 1] if self.pos + 1 < len(self.tokens) else ('EOF', '')
+            if next_token[0] == 'LPAREN':
+                return self.parse_chamada_funcao()
+            else:
+                self.eat('IDENTIFIER')
+                return ('IDENTIFIER', token[1])
         elif token[0] == 'INTEGER':
             self.eat('INTEGER')
             return ('INTEGER', token[1])
@@ -267,6 +276,22 @@ class Parser:
             return ('BOOLEAN', token[1])
         else:
             raise SyntaxError(f"Erro sintático: token inesperado {token[0]}")
+        
+    def parse_chamada_funcao(self):
+        func_name = self.current_token()[1]
+        self.eat('IDENTIFIER')
+        self.eat('LPAREN')
+        args = []
+        if self.current_token()[0] != 'RPAREN':
+            while True:
+                arg = self.parse_expressao()
+                args.append(arg)
+                if self.current_token()[0] == 'COMMA':
+                    self.eat('COMMA')
+                else:
+                    break
+        self.eat('RPAREN')
+        return ('CALL', func_name, args)
 
 # Impressao textual
 def print_ast(node, level=0):
@@ -347,6 +372,11 @@ class SemanticAnalyzer:
             else:
                 self.errors.append(f"Erro semântico: operação inválida com tipo '{left_type}'.")
                 return 'undef'
+        elif node[0] == 'CALL':
+            # Aqui você pode definir que todas as funções retornam 'int' por simplicidade,
+            # ou criar um registro de funções e seus tipos.
+            return 'int'
+
         elif node[0] == 'ASSIGN':
             return self.get_type(node[2], table)
         return 'undef'
@@ -433,6 +463,9 @@ class SemanticAnalyzer:
             elif node[0] == 'STRING':
                 return 'string'
             
+            elif kind == 'CALL':
+                for arg in node[2]:
+                    self.analyze(arg, table)
             elif kind == 'FUNCAO':
                 tipo_retorno = node[1]
                 nome_funcao = node[2]
@@ -448,10 +481,30 @@ class SemanticAnalyzer:
                         self.errors.append(str(ve))
 
                 # Analisar o corpo da função no novo escopo
-                self.analyze(corpo, func_table)
+                self.analyze_func_body(corpo, func_table, tipo_retorno)
 
             elif kind == 'INTEGER':
                 pass
+            
+    def analyze_func_body(self, node, table, expected_return_type):
+        if isinstance(node, tuple):
+            kind = node[0]
+
+            if kind == 'RETURN':
+                retorno_tipo = self.get_type(node[1], table)
+                if retorno_tipo != expected_return_type:
+                    self.errors.append(
+                        f"Erro semântico: tipo de retorno '{retorno_tipo}' incompatível com tipo da função '{expected_return_type}'."
+                    )
+                self.analyze(node[1], table)
+
+            elif kind == 'BLOCK':
+                new_table = SymbolTable(table)
+                for subnode in node[1:]:
+                    self.analyze_func_body(subnode, new_table, expected_return_type)
+
+            else:
+                self.analyze(node, table)
 
 # Funcoes GUI
 def analyze_code(code):
