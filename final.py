@@ -324,6 +324,58 @@ def build_graphviz_ast(node, graph=None, parent=None, counter=[0]):
 
     return graph
 
+tac = []
+temp_counter = 0
+
+def new_temp():
+    global temp_counter
+    temp_counter += 1
+    return f"t{temp_counter}"
+
+def generate_TAC(node):
+    if isinstance(node, tuple):
+        kind = node[0]
+
+        if kind == 'BIN_OP':
+            left = generate_TAC(node[2])
+            right = generate_TAC(node[3])
+            temp = new_temp()
+            tac.append(f"{temp} = {left} {node[1]} {right}")
+            return temp
+
+        elif kind == 'ASSIGN':
+            var = generate_TAC(node[1])
+            value = generate_TAC(node[2])
+            tac.append(f"{var} = {value}")
+            return var
+
+        elif kind == 'DECL_ASSIGN':
+            var = node[2]
+            value = generate_TAC(node[3])
+            temp = new_temp()
+            tac.append(f"{temp} = {value}")
+            tac.append(f"{var} = {temp}")
+            return var
+
+        elif kind == 'INTEGER':
+            return node[1]
+        elif kind == 'IDENTIFIER':
+            return node[1]
+        elif kind == 'STRING':
+            return node[1]
+        elif kind == 'BOOLEAN':
+            return node[1]
+        
+        elif kind == 'BLOCK' or kind == 'PROGRAMA':
+            for subnode in node[1:]:
+                generate_TAC(subnode)
+
+        elif kind == 'RETURN':
+            value = generate_TAC(node[1])
+            tac.append(f"return {value}")
+            return value
+
+
 # ---------------------------- Analisador Semântico ----------------------------
 class SymbolTable:
     def __init__(self, parent=None):
@@ -342,6 +394,24 @@ class SymbolTable:
             return self.parent.lookup(name)
         else:
             return None
+
+# Estruturas de AST
+class ASTNode:
+    pass
+
+class BinOp(ASTNode):
+    def __init__(self, op, left, right):
+        self.op = op
+        self.left = left
+        self.right = right
+
+class Var(ASTNode):
+    def __init__(self, name):
+        self.name = name
+
+class Const(ASTNode):
+    def __init__(self, value):
+        self.value = value
 
 class SemanticAnalyzer:
     def __init__(self):
@@ -515,11 +585,20 @@ def analyze_code(code):
 
         semantic = SemanticAnalyzer()
         semantic.analyze(ast)
+        global tac, temp_counter
+        tac = []
+        temp_counter = 0
+        generate_TAC(ast)
+        
+        with open('output.tac', 'w') as f:
+            for instr in tac:
+                f.write(instr + '\n')
+        
         sem_errors = "\n".join(semantic.errors)
         if sem_errors:
-            return f"{print_ast(ast)}\n{sem_errors}", ast
+            return f"{print_ast(ast)}\n{sem_errors}\n\nTAC:\n" + "\n".join(tac), ast
         else:
-            return print_ast(ast), ast
+            return f"{print_ast(ast)}\n\nTAC:\n" + "\n".join(tac), ast
     except (ValueError, SyntaxError) as e:
         return str(e), None
 
