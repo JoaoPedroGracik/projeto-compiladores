@@ -2,9 +2,5 @@
 
 ---------------------------------------------------------
 
-Arrumar
--validação de passagem de parâmetros (errados e faltantes)
--atribuição de chamada de função
-
 Sugestão que vai tomar um tempo
 - trabalhar com vetores matriz e diversos 

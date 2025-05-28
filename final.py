@@ -369,6 +369,12 @@ def generate_TAC(node):
         elif kind == 'BLOCK' or kind == 'PROGRAMA':
             for subnode in node[1:]:
                 generate_TAC(subnode)
+                
+        elif kind == 'CALL':
+            args_temps = [generate_TAC(arg) for arg in node[2]]
+            temp = new_temp()
+            tac.append(f"{temp} = call {node[1]}({', '.join(args_temps)})")
+            return temp
 
         elif kind == 'RETURN':
             value = generate_TAC(node[1])
@@ -394,6 +400,18 @@ class SymbolTable:
             return self.parent.lookup(name)
         else:
             return None
+        
+class FunctionTable:
+    def __init__(self):
+        self.functions = {}
+
+    def define(self, name, return_type, param_types):
+        self.functions[name] = (return_type, param_types)
+
+    def lookup(self, name):
+        return self.functions.get(name, None)
+
+
 
 # Estruturas de AST
 class ASTNode:
@@ -416,6 +434,7 @@ class Const(ASTNode):
 class SemanticAnalyzer:
     def __init__(self):
         self.errors = []
+        self.function_table = FunctionTable()
 
     def get_type(self, node, table):
         if node[0] == 'INTEGER':
@@ -443,9 +462,27 @@ class SemanticAnalyzer:
                 self.errors.append(f"Erro semântico: operação inválida com tipo '{left_type}'.")
                 return 'undef'
         elif node[0] == 'CALL':
-            # Aqui você pode definir que todas as funções retornam 'int' por simplicidade,
-            # ou criar um registro de funções e seus tipos.
-            return 'int'
+            func_info = self.function_table.lookup(node[1])
+            if not func_info:
+                self.errors.append(f"Erro semântico: função '{node[1]}' não declarada.")
+                return 'undef'
+
+            ret_type, param_types = func_info
+            args = node[2]
+
+            if len(args) != len(param_types):
+                self.errors.append(
+                    f"Erro semântico: número incorreto de argumentos na chamada de '{node[1]}'. Esperado {len(param_types)}, recebido {len(args)}."
+                )
+
+            for idx, arg in enumerate(args):
+                arg_type = self.get_type(arg, table)
+                if idx < len(param_types) and arg_type != param_types[idx]:
+                    self.errors.append(
+                        f"Erro semântico: tipo incorreto no argumento {idx + 1} da função '{node[1]}'. Esperado '{param_types[idx]}', recebido '{arg_type}'."
+                    )
+
+            return ret_type
 
         elif node[0] == 'ASSIGN':
             return self.get_type(node[2], table)
@@ -541,6 +578,12 @@ class SemanticAnalyzer:
                 nome_funcao = node[2]
                 parametros = node[3]
                 corpo = node[4]
+                
+                self.function_table.define(
+                    nome_funcao,
+                    tipo_retorno,
+                    [param_tipo for param_tipo, _ in parametros]
+                )
 
                 # Criar escopo novo com os parâmetros
                 func_table = SymbolTable(table)
