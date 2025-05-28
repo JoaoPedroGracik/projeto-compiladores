@@ -2,8 +2,6 @@
 
 ---------------------------------------------------------
 
-Gerar Assembly RISCV do TAC gerado
-
 Arrumar
 -validação de passagem de parâmetros (errados e faltantes)
 -atribuição de chamada de função
