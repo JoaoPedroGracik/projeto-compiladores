@@ -16,6 +16,7 @@ TOKEN_REGEX = [
     (r'==', 'EQUALS'),
     (r'=', 'ASSIGN'),
     (r'!=', 'NOT_EQUALS'),
+    (r'!', 'NOT'),
     (r'<=', 'LESS_EQUAL'),
     (r'>=', 'GREATER_EQUAL'),
     (r'<', 'LESS_THAN'),
@@ -27,9 +28,11 @@ TOKEN_REGEX = [
     (r';', 'SEMICOLON'),
     (r'\(', 'LPAREN'),
     (r'\)', 'RPAREN'),
-    (r',', 'COMMA'),
+    (r'\[', 'LBRACKET'),
+    (r'\]', 'RBRACKET'),
     (r'\{', 'LBRACE'),
     (r'\}', 'RBRACE'),
+    (r',', 'COMMA'),
     (r'"[^"]*"', 'STRING'),
     (r'\s+', None),
 ]
@@ -146,6 +149,9 @@ class Parser:
             return self.parse_declaracao()
         elif token[0] == 'IDENTIFIER' and token[1] in ('string', 'bool'):
             return self.parse_declaracao()
+        elif token[0] == 'IDENTIFIER':
+            # Pode ser atribuição normal, vetor, matriz ou chamada
+            return self.parse_atribuicao_ou_chamada()
         elif token[0] == 'IF':
             return self.parse_if_comando()
         elif token[0] == 'WHILE':
@@ -157,31 +163,91 @@ class Parser:
         else:
             return self.parse_expressao_comando()
 
+    def parse_primaria(self):
+        token = self.current_token()
+        if token[0] == 'IDENTIFIER':
+            nome = token[1]
+            self.eat('IDENTIFIER')
+
+            if self.current_token()[0] == 'LBRACKET':
+                self.eat('LBRACKET')
+                index1 = self.parse_expressao()
+                self.eat('RBRACKET')
+
+                if self.current_token()[0] == 'LBRACKET':
+                    self.eat('LBRACKET')
+                    index2 = self.parse_expressao()
+                    self.eat('RBRACKET')
+
+                    if self.current_token()[0] == 'ASSIGN':
+                        self.eat('ASSIGN')
+                        value = self.parse_expressao()
+                        return ('MATRIX_ASSIGN', nome, index1, index2, value)
+                    return ('MATRIX_ACCESS', nome, index1, index2)
+
+                else:
+                    if self.current_token()[0] == 'ASSIGN':
+                        self.eat('ASSIGN')
+                        value = self.parse_expressao()
+                        return ('ARRAY_ASSIGN', nome, index1, value)
+                    return ('ARRAY_ACCESS', nome, index1)
+
+            else:
+                if self.current_token()[0] == 'ASSIGN':
+                    self.eat('ASSIGN')
+                    value = self.parse_expressao()
+                    return ('ASSIGN', ('IDENTIFIER', nome), value)
+                return ('IDENTIFIER', nome)
+
+        # (outros casos: INTEGER, STRING, BOOLEAN, etc.)
+
     def parse_declaracao(self):
+        # tipo
         if self.current_token()[0] == 'INT':
             tipo = 'int'
             self.eat('INT')
-        elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] == 'string':
-            tipo = 'string'
-            self.eat('IDENTIFIER')
-        elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] == 'bool':
-            tipo = 'bool'
+        elif self.current_token()[0] == 'IDENTIFIER' and self.current_token()[1] in ('string', 'bool'):
+            tipo = self.current_token()[1]
             self.eat('IDENTIFIER')
         else:
             raise SyntaxError(f"Erro sintático: tipo '{self.current_token()[1]}' inválido.")
 
-        var_name = self.current_token()[1]
+        # nome
+        nome = self.current_token()[1]
         self.eat('IDENTIFIER')
 
-        if self.current_token()[0] == 'ASSIGN':
+        # vetor / matriz
+        if self.current_token()[0] == 'LBRACKET':
+            self.eat('LBRACKET')
+            tamanho1 = self.current_token()[1]
+            self.eat('INTEGER')
+            self.eat('RBRACKET')
+
+            if self.current_token()[0] == 'LBRACKET':
+                self.eat('LBRACKET')
+                tamanho2 = self.current_token()[1]
+                self.eat('INTEGER')
+                self.eat('RBRACKET')
+                self.eat('SEMICOLON')
+                return ('DECL_MATRIX', tipo, nome, tamanho1, tamanho2)
+            else:
+                self.eat('SEMICOLON')
+                return ('DECL_VECTOR', tipo, nome, tamanho1)
+
+        # atribuição
+        elif self.current_token()[0] == 'ASSIGN':
             self.eat('ASSIGN')
             expr = self.parse_expressao()
             self.eat('SEMICOLON')
-            return ('DECL_ASSIGN', tipo, var_name, expr)
+            return ('DECL_ASSIGN', tipo, nome, expr)
+
+        # simples
         else:
             self.eat('SEMICOLON')
-        return ('DECL', tipo, var_name)
+            return ('DECL', tipo, nome)
 
+    
+    
     def parse_if_comando(self):
         self.eat('IF')
         self.eat('LPAREN')
@@ -205,9 +271,9 @@ class Parser:
         return ('RETURN', expr)
 
     def parse_expressao_comando(self):
-        expr = self.parse_expressao()
+        node = self.parse_expressao()
         self.eat('SEMICOLON')
-        return ('EXPR', expr)
+        return node
 
     def parse_bloco(self):
         self.eat('LBRACE')
@@ -274,6 +340,10 @@ class Parser:
         elif token[0] == 'BOOLEAN':
             self.eat('BOOLEAN')
             return ('BOOLEAN', token[1])
+        elif token[0] == 'NOT':
+            self.eat('NOT')
+            expr = self.parse_primaria()
+            return ('UNARY_OP', 'NOT', expr)
         else:
             raise SyntaxError(f"Erro sintático: token inesperado {token[0]}")
         
@@ -292,6 +362,55 @@ class Parser:
                     break
         self.eat('RPAREN')
         return ('CALL', func_name, args)
+    
+    def parse_atribuicao_ou_chamada(self):
+        nome = self.current_token()[1]
+        self.eat('IDENTIFIER')
+
+        if self.current_token()[0] == 'LBRACKET':
+            self.eat('LBRACKET')
+            index1 = self.parse_expressao()
+            self.eat('RBRACKET')
+
+            if self.current_token()[0] == 'LBRACKET':
+                self.eat('LBRACKET')
+                index2 = self.parse_expressao()
+                self.eat('RBRACKET')
+                self.eat('ASSIGN')
+                value = self.parse_expressao()
+                self.eat('SEMICOLON')
+                return ('MATRIX_ASSIGN', nome, index1, index2, value)
+            else:
+                self.eat('ASSIGN')
+                value = self.parse_expressao()
+                self.eat('SEMICOLON')
+                return ('ARRAY_ASSIGN', nome, index1, value)
+
+        elif self.current_token()[0] == 'ASSIGN':
+            self.eat('ASSIGN')
+            value = self.parse_expressao()
+            self.eat('SEMICOLON')
+            return ('ASSIGN', ('IDENTIFIER', nome), value)
+
+        elif self.current_token()[0] == 'LPAREN':
+            # chamada de função
+            self.eat('LPAREN')
+            args = []
+            if self.current_token()[0] != 'RPAREN':
+                while True:
+                    arg = self.parse_expressao()
+                    args.append(arg)
+                    if self.current_token()[0] == 'COMMA':
+                        self.eat('COMMA')
+                    else:
+                        break
+            self.eat('RPAREN')
+            self.eat('SEMICOLON')
+            return ('CALL', nome, args)
+
+        else:
+            raise SyntaxError(f"Erro sintático: Esperado atribuição, chamada ou acesso, mas encontrado {self.current_token()[0]}")
+
 
 # Impressao textual
 def print_ast(node, level=0):
@@ -374,6 +493,27 @@ def generate_TAC(node):
             args_temps = [generate_TAC(arg) for arg in node[2]]
             temp = new_temp()
             tac.append(f"{temp} = call {node[1]}({', '.join(args_temps)})")
+            return temp
+        
+        elif node[0] == 'UNARY_OP' and node[1] == 'NOT':
+            val = generate_TAC(node[2])
+            temp = new_temp()
+            tac.append(f"{temp} = !{val}")
+            return temp
+
+        elif node[0] == 'ARRAY_ACCESS':
+            index = generate_TAC(node[2])
+            temp = new_temp()
+            tac.append(f"{temp} = {node[1]}[{index}]")
+            return temp
+
+        elif node[0] == 'MATRIX_ACCESS':
+            row = generate_TAC(node[2])
+            col = generate_TAC(node[3])
+            temp_index = new_temp()
+            tac.append(f"{temp_index} = {row} * N_COLS + {col}")  # N_COLS: você pode ajustar
+            temp = new_temp()
+            tac.append(f"{temp} = {node[1]}[{temp_index}]")
             return temp
 
         elif kind == 'RETURN':
@@ -483,6 +623,48 @@ class SemanticAnalyzer:
                     )
 
             return ret_type
+        
+                        
+        elif node[0] == 'UNARY_OP' and node[1] == 'NOT':
+            expr_type = self.get_type(node[2], table)
+            if expr_type != 'bool':
+                self.errors.append(
+                    f"Erro semântico: operador '!' aplicado a tipo inválido '{expr_type}'."
+                )
+                return 'undef'
+            return 'bool'
+        
+        elif node[0] == 'ARRAY_ACCESS':
+            nome = node[1]
+            index_type = self.get_type(node[2], table)
+            if index_type != 'int':
+                self.errors.append(f"Erro semântico: índice de vetor deve ser int, encontrado '{index_type}'.")
+                return 'undef'
+
+            var_type = table.lookup(nome)
+            if not var_type or not var_type.startswith('vector'):
+                self.errors.append(f"Erro semântico: '{nome}' não é um vetor declarado.")
+                return 'undef'
+
+            # Extrair tipo interno
+            inner_type = var_type.split('(')[1].split(',')[0]
+            return inner_type
+
+        elif node[0] == 'MATRIX_ACCESS':
+            nome = node[1]
+            row_type = self.get_type(node[2], table)
+            col_type = self.get_type(node[3], table)
+            if row_type != 'int' or col_type != 'int':
+                self.errors.append(f"Erro semântico: índices da matriz devem ser int.")
+                return 'undef'
+
+            var_type = table.lookup(nome)
+            if not var_type or not var_type.startswith('matrix'):
+                self.errors.append(f"Erro semântico: '{nome}' não é uma matriz declarada.")
+                return 'undef'
+
+            inner_type = var_type.split('(')[1].split(',')[0]
+            return inner_type
 
         elif node[0] == 'ASSIGN':
             return self.get_type(node[2], table)
