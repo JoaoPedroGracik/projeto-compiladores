@@ -501,20 +501,53 @@ def generate_TAC(node):
             tac.append(f"{temp} = !{val}")
             return temp
 
+        elif node[0] == 'ARRAY_ASSIGN':
+            nome = node[1]
+            index = generate_TAC(node[2])
+            value = generate_TAC(node[3])
+            tac.append(f"{nome}[{index}] = {value}")
+            return None
+
+        elif node[0] == 'MATRIX_ASSIGN':
+            nome = node[1]
+            row = generate_TAC(node[2])
+            col = generate_TAC(node[3])
+            offset = new_temp()
+            tac.append(f"{offset} = {row} * N_COLS + {col}")  # N_COLS: substitua pelo valor real, ex: 3
+            value = generate_TAC(node[4])
+            tac.append(f"{nome}[{offset}] = {value}")
+            return None
+
         elif node[0] == 'ARRAY_ACCESS':
+            nome = node[1]
             index = generate_TAC(node[2])
             temp = new_temp()
-            tac.append(f"{temp} = {node[1]}[{index}]")
+            tac.append(f"{temp} = {nome}[{index}]")
             return temp
 
         elif node[0] == 'MATRIX_ACCESS':
+            nome = node[1]
             row = generate_TAC(node[2])
             col = generate_TAC(node[3])
-            temp_index = new_temp()
-            tac.append(f"{temp_index} = {row} * N_COLS + {col}")  # N_COLS: você pode ajustar
+            offset = new_temp()
+            tac.append(f"{offset} = {row} * N_COLS + {col}")
             temp = new_temp()
-            tac.append(f"{temp} = {node[1]}[{temp_index}]")
+            tac.append(f"{temp} = {nome}[{offset}]")
             return temp
+        
+        elif node[0] == 'DECL_VECTOR':
+            nome = node[2]
+            tamanho = node[3]
+            tac.append(f"ALLOC {nome}[{tamanho}]")
+            return None
+
+        elif node[0] == 'DECL_MATRIX':
+            nome = node[2]
+            linhas = node[3]
+            colunas = node[4]
+            tac.append(f"ALLOC {nome}[{linhas}][{colunas}]")
+            return None
+
 
         elif kind == 'RETURN':
             value = generate_TAC(node[1])
