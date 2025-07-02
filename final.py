@@ -37,6 +37,8 @@ TOKEN_REGEX = [
     (r'\{', 'LBRACE'),
     (r'\}', 'RBRACE'),
     (r',', 'COMMA'),
+    (r'\?', 'QUESTION'),
+    (r':', 'COLON'),
     (r'"[^"]*"', 'STRING'),
     (r'\s+', None),
 ]
@@ -325,7 +327,16 @@ class Parser:
         return ('BLOCK', comandos)
 
     def parse_expressao(self):
-        return self.parse_or()
+        node = self.parse_or()
+
+        if self.current_token()[0] == 'QUESTION':
+            self.eat('QUESTION')
+            true_expr = self.parse_expressao()
+            self.eat('COLON')
+            false_expr = self.parse_expressao()
+            node = ('TERNARY', node, true_expr, false_expr)
+
+        return node
 
     def parse_or(self):
         node = self.parse_and()
@@ -501,11 +512,17 @@ def build_graphviz_ast(node, graph=None, parent=None, counter=[0]):
 
 tac = []
 temp_counter = 0
+label_counter = 0
 
 def new_temp():
     global temp_counter
     temp_counter += 1
     return f"t{temp_counter}"
+
+def new_label():
+    global label_counter
+    label_counter += 1
+    return f"L{label_counter}"
 
 def generate_TAC(node):
     if isinstance(node, tuple):
@@ -549,6 +566,29 @@ def generate_TAC(node):
             args_temps = [generate_TAC(arg) for arg in node[2]]
             temp = new_temp()
             tac.append(f"{temp} = call {node[1]}({', '.join(args_temps)})")
+            return temp
+        
+        elif node[0] == 'TERNARY':
+            cond = generate_TAC(node[1])
+            true_label = new_label()
+            false_label = new_label()
+            end_label = new_label()
+            temp = new_temp()
+
+            tac.append(f"if {cond} goto {true_label}")
+            tac.append(f"goto {false_label}")
+
+            tac.append(f"{true_label}:")
+            t_true = generate_TAC(node[2])
+            tac.append(f"{temp} = {t_true}")
+            tac.append(f"goto {end_label}")
+
+            tac.append(f"{false_label}:")
+            t_false = generate_TAC(node[3])
+            tac.append(f"{temp} = {t_false}")
+
+            tac.append(f"{end_label}:")
+
             return temp
         
         elif node[0] == 'UNARY_OP' and node[1] == 'NOT':
@@ -603,7 +643,6 @@ def generate_TAC(node):
             colunas = node[4]
             tac.append(f"ALLOC {nome}[{linhas}][{colunas}]")
             return None
-
 
         elif kind == 'RETURN':
             value = generate_TAC(node[1])
@@ -733,6 +772,24 @@ class SemanticAnalyzer:
                 )
                 return 'undef'
             return 'bool'
+        
+        elif node[0] == 'TERNARY':
+            cond_type = self.get_type(node[1], table)
+            true_type = self.get_type(node[2], table)
+            false_type = self.get_type(node[3], table)
+
+            if cond_type != 'bool':
+                self.errors.append("Erro semântico: condição do operador ternário precisa ser bool.")
+                return 'undef'
+
+            if true_type == 'undef' or false_type == 'undef':
+                return 'undef'
+
+            if true_type != false_type:
+                self.errors.append("Erro semântico: os dois ramos do operador ternário devem ter o mesmo tipo.")
+                return 'undef'
+
+            return true_type
         
         elif node[0] == 'ARRAY_ACCESS':
             nome = node[1]
