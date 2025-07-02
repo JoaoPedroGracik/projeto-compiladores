@@ -1,73 +1,9 @@
 ------------------------------------------------------------------------------
 
-Problemas
+Extra
 
-BOOLEANO
-
-bool b = 2 == 2;
-Erro semântico: atribuição de tipo 'int' à variável 'b' de tipo 'bool'.
-
-bool b = 5 != 3;
-Erro semântico: atribuição de tipo 'int' à variável 'b' de tipo 'bool'.
-
-bool b = 2 < 5;
-Erro semântico: atribuição de tipo 'int' à variável 'b' de tipo 'bool'.
-
-bool b = 2 <= 2;
-Erro semântico: atribuição de tipo 'int' à variável 'b' de tipo 'bool'.
-
-#############################################################################
-
-bool b = true && false;
-Erro léxico: Caractere inválido '&' encontrado em Linha 1, coluna 15.
-
-bool b = true || false;
-Erro léxico: Caractere inválido '|' encontrado em Linha 1, coluna 15.
-
-bool b = (2 < 3) && (4 > 1);
-Erro léxico: Caractere inválido '&' encontrado em Linha 1, coluna 18.
-
-#############################################################################
-
-if | else
-
-int x = 5;
-
-if (x > 0) {
-    x = x - 1;
-} else {
-    x = x + 1;
-}
-Erro sintático: Esperado atribuição, chamada ou acesso, mas encontrado LBRACE
-
-
-int x = 2;
-int y = 3;
-
-if (x < y && y > 0) {
-    x = x + y;
-}
-Erro léxico: Caractere inválido '&' encontrado em Linha 1, coluna 34.
-
-#############################################################################
-
-for (int i = 0; i < 3; i = i + 1) {
-    // corpo vazio
-}
-Erro sintático: token inesperado INT
-
-int sum = 0;
-
-for (int i = 0; i < 3; i = i + 1) {
-    sum = sum + i;
-}
-Erro sintático: token inesperado INT
-
-#############################################################################
-bool maiorQueZero(int x) {
-    return x > 0;
-}
-
-Erro semântico: tipo de retorno 'int' incompatível com tipo da função 'bool'.
+    Operador ternário (cond ? a : b)
+    
+    Recursão
 
 ------------------------------------------------------------------------------

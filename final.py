@@ -8,7 +8,9 @@ from PIL import Image, ImageTk
 TOKEN_REGEX = [
     (r'int\b', 'INT'),
     (r'if\b', 'IF'),
+    (r'else\b', 'ELSE'),
     (r'while\b', 'WHILE'),
+    (r'for\b', 'FOR'),
     (r'return\b', 'RETURN'),
     (r'true\b|false\b', 'BOOLEAN'),
     (r'[a-zA-Z_][a-zA-Z0-9_]*', 'IDENTIFIER'),
@@ -17,6 +19,8 @@ TOKEN_REGEX = [
     (r'=', 'ASSIGN'),
     (r'!=', 'NOT_EQUALS'),
     (r'!', 'NOT'),
+    (r'&&', 'AND'),
+    (r'\|\|', 'OR'),
     (r'<=', 'LESS_EQUAL'),
     (r'>=', 'GREATER_EQUAL'),
     (r'<', 'LESS_THAN'),
@@ -156,6 +160,8 @@ class Parser:
             return self.parse_if_comando()
         elif token[0] == 'WHILE':
             return self.parse_while_comando()
+        elif token[0] == 'FOR':
+            return self.parse_for_comando()
         elif token[0] == 'RETURN':
             return self.parse_return_comando()
         elif token[0] == 'LBRACE':
@@ -251,10 +257,16 @@ class Parser:
     def parse_if_comando(self):
         self.eat('IF')
         self.eat('LPAREN')
-        expr = self.parse_expressao()
+        cond = self.parse_expressao()
         self.eat('RPAREN')
-        comando = self.parse_comando()
-        return ('IF', expr, comando)
+        true_block = self.parse_comando()
+
+        if self.current_token()[0] == 'ELSE':
+            self.eat('ELSE')
+            false_block = self.parse_comando()
+            return ('IF', cond, true_block, false_block)
+        else:
+            return ('IF', cond, true_block)
 
     def parse_while_comando(self):
         self.eat('WHILE')
@@ -263,6 +275,35 @@ class Parser:
         self.eat('RPAREN')
         comando = self.parse_comando()
         return ('WHILE', expr, comando)
+    
+    def parse_for_comando(self):
+        self.eat('FOR')
+        self.eat('LPAREN')
+
+        # Parte 1: inicialização (declaração ou atribuição)
+        if self.current_token()[0] == 'INT':
+            init = self.parse_declaracao()
+        elif self.current_token()[0] == 'IDENTIFIER':
+            init = self.parse_atribuicao_ou_chamada()
+        else:
+            raise SyntaxError("Esperado declaração ou atribuição na inicialização do for")
+
+        # Parte 2: condição
+        cond = self.parse_expressao()
+        self.eat('SEMICOLON')
+
+        # Parte 3: incremento (atribuição ou expressão)
+        if self.current_token()[0] == 'IDENTIFIER':
+            increment = self.parse_atribuicao_ou_chamada()
+        else:
+            increment = self.parse_expressao()
+
+        self.eat('RPAREN')  # Correto: RPAREN vem após incremento
+
+        # Bloco do for
+        bloco = self.parse_comando()
+
+        return ('FOR', init, cond, increment, bloco)
 
     def parse_return_comando(self):
         self.eat('RETURN')
@@ -277,16 +318,31 @@ class Parser:
 
     def parse_bloco(self):
         self.eat('LBRACE')
-        comandos = self.parse_lista_de_comandos()
+        comandos = []
+        while self.current_token()[0] != 'RBRACE':
+            comandos.append(self.parse_comando())
         self.eat('RBRACE')
-        return ('BLOCK', *comandos)
+        return ('BLOCK', comandos)
 
     def parse_expressao(self):
+        return self.parse_or()
+
+    def parse_or(self):
+        node = self.parse_and()
+        while self.current_token()[0] == 'OR':
+            op = self.current_token()[0]
+            self.eat(op)
+            right = self.parse_and()
+            node = ('BIN_OP', op, node, right)
+        return node
+
+    def parse_and(self):
         node = self.parse_relacional()
-        if self.current_token()[0] == 'ASSIGN':
-            self.eat('ASSIGN')
-            right = self.parse_expressao()
-            return ('ASSIGN', node, right)
+        while self.current_token()[0] == 'AND':
+            op = self.current_token()[0]
+            self.eat(op)
+            right = self.parse_relacional()
+            node = ('BIN_OP', op, node, right)
         return node
 
     def parse_relacional(self):
@@ -627,6 +683,17 @@ class SemanticAnalyzer:
                     f"Erro semântico: tipos incompatíveis em operação binária: '{left_type}' e '{right_type}'."
                 )
                 return 'undef'
+            
+            if node[1] in ('EQUALS', 'NOT_EQUALS', 'LESS_THAN', 'LESS_EQUAL', 'GREATER_THAN', 'GREATER_EQUAL'):
+                    return 'bool'
+
+            elif node[1] == 'PLUS' and left_type in ('int', 'string'):
+                    return left_type
+            elif node[1] in ('MINUS', 'MULTIPLY', 'DIVIDE') and left_type == 'int':
+                    return 'int'
+            elif node[1] in ('AND', 'OR') and left_type == 'bool':
+                    return 'bool'
+                
             if node[1] == 'PLUS' and left_type in ('int', 'string'):
                 return left_type
             elif left_type in ('int', 'bool'):  # outras operações válidas
