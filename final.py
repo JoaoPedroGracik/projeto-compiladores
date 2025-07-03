@@ -173,10 +173,24 @@ class Parser:
 
     def parse_primaria(self):
         token = self.current_token()
-        if token[0] == 'IDENTIFIER':
+
+        if token[0] == 'INTEGER':
+            self.eat('INTEGER')
+            return ('INTEGER', token[1])
+        
+        elif token[0] == 'BOOLEAN':
+            self.eat('BOOLEAN')
+            return ('BOOLEAN', token[1])
+        
+        elif token[0] == 'STRING':
+            self.eat('STRING')
+            return ('STRING', token[1])
+
+        elif token[0] == 'IDENTIFIER':
             nome = token[1]
             self.eat('IDENTIFIER')
 
+            # Acesso a vetor ou matriz
             if self.current_token()[0] == 'LBRACKET':
                 self.eat('LBRACKET')
                 index1 = self.parse_expressao()
@@ -186,28 +200,36 @@ class Parser:
                     self.eat('LBRACKET')
                     index2 = self.parse_expressao()
                     self.eat('RBRACKET')
-
-                    if self.current_token()[0] == 'ASSIGN':
-                        self.eat('ASSIGN')
-                        value = self.parse_expressao()
-                        return ('MATRIX_ASSIGN', nome, index1, index2, value)
                     return ('MATRIX_ACCESS', nome, index1, index2)
-
                 else:
-                    if self.current_token()[0] == 'ASSIGN':
-                        self.eat('ASSIGN')
-                        value = self.parse_expressao()
-                        return ('ARRAY_ASSIGN', nome, index1, value)
                     return ('ARRAY_ACCESS', nome, index1)
 
+            # Chamada de função
+            elif self.current_token()[0] == 'LPAREN':
+                self.eat('LPAREN')
+                args = []
+                if self.current_token()[0] != 'RPAREN':
+                    while True:
+                        args.append(self.parse_expressao())
+                        if self.current_token()[0] == 'COMMA':
+                            self.eat('COMMA')
+                        else:
+                            break
+                self.eat('RPAREN')
+                return ('CALL', nome, args)
+
+            # Variável comum
             else:
-                if self.current_token()[0] == 'ASSIGN':
-                    self.eat('ASSIGN')
-                    value = self.parse_expressao()
-                    return ('ASSIGN', ('IDENTIFIER', nome), value)
                 return ('IDENTIFIER', nome)
 
-        # (outros casos: INTEGER, STRING, BOOLEAN, etc.)
+        elif token[0] == 'LPAREN':
+            self.eat('LPAREN')
+            expr = self.parse_expressao()
+            self.eat('RPAREN')
+            return expr
+
+        else:
+            raise SyntaxError(f"Erro sintático: expressão inesperada {token}")
 
     def parse_declaracao(self):
         # tipo
@@ -557,18 +579,32 @@ def generate_TAC(node):
             return node[1]
         elif kind == 'BOOLEAN':
             return node[1]
-        
-        elif kind == 'BLOCK' or kind == 'PROGRAMA':
+
+        elif kind == 'BLOCK':
+            comandos = node[1]
+            for subnode in comandos:
+                generate_TAC(subnode)
+
+        elif kind == 'PROGRAMA':
             for subnode in node[1:]:
                 generate_TAC(subnode)
-                
+
+        elif kind == 'FUNCAO':
+            return_type = node[1]
+            func_name = node[2]
+            params = node[3]
+            bloco = node[4]
+            tac.append(f"FUNC {func_name}")
+            generate_TAC(bloco)
+            tac.append(f"END {func_name}")
+
         elif kind == 'CALL':
             args_temps = [generate_TAC(arg) for arg in node[2]]
             temp = new_temp()
             tac.append(f"{temp} = call {node[1]}({', '.join(args_temps)})")
             return temp
-        
-        elif node[0] == 'TERNARY':
+
+        elif kind == 'TERNARY':
             cond = generate_TAC(node[1])
             true_label = new_label()
             false_label = new_label()
@@ -591,37 +627,92 @@ def generate_TAC(node):
 
             return temp
         
-        elif node[0] == 'UNARY_OP' and node[1] == 'NOT':
+        elif kind == 'IF':
+            cond = generate_TAC(node[1])
+            true_label = new_label()
+            false_label = new_label()
+            end_label = new_label()
+
+            tac.append(f"if {cond} goto {true_label}")
+            tac.append(f"goto {false_label}")
+
+            tac.append(f"{true_label}:")
+            generate_TAC(node[2])  # bloco do if
+            tac.append(f"goto {end_label}")
+
+            tac.append(f"{false_label}:")
+            if len(node) == 4:  # Tem else
+                generate_TAC(node[3])  # bloco do else
+            tac.append(f"{end_label}:")
+            
+        elif kind == 'WHILE':
+            start_label = new_label()
+            end_label = new_label()
+            
+            tac.append(f"{start_label}:")
+            cond = generate_TAC(node[1])
+            tac.append(f"ifnot {cond} goto {end_label}")
+            
+            generate_TAC(node[2])  # Bloco do while
+            
+            tac.append(f"goto {start_label}")
+            tac.append(f"{end_label}:")
+            
+        elif kind == 'FOR':
+            init_label = new_label()
+            cond_label = new_label()
+            inc_label = new_label()
+            end_label = new_label()
+            
+            # Inicialização
+            generate_TAC(node[1])  # init
+            tac.append(f"{init_label}:")
+            
+            # Condição
+            cond = generate_TAC(node[2])
+            tac.append(f"ifnot {cond} goto {end_label}")
+            
+            # Bloco
+            generate_TAC(node[4])
+            
+            # Incremento
+            tac.append(f"{inc_label}:")
+            generate_TAC(node[3])
+            
+            tac.append(f"goto {init_label}")
+            tac.append(f"{end_label}:")
+
+        elif kind == 'UNARY_OP' and node[1] == 'NOT':
             val = generate_TAC(node[2])
             temp = new_temp()
             tac.append(f"{temp} = !{val}")
             return temp
 
-        elif node[0] == 'ARRAY_ASSIGN':
+        elif kind == 'ARRAY_ASSIGN':
             nome = node[1]
             index = generate_TAC(node[2])
             value = generate_TAC(node[3])
             tac.append(f"{nome}[{index}] = {value}")
             return None
 
-        elif node[0] == 'MATRIX_ASSIGN':
+        elif kind == 'MATRIX_ASSIGN':
             nome = node[1]
             row = generate_TAC(node[2])
             col = generate_TAC(node[3])
             offset = new_temp()
-            tac.append(f"{offset} = {row} * N_COLS + {col}")  # N_COLS: substitua pelo valor real, ex: 3
+            tac.append(f"{offset} = {row} * N_COLS + {col}")
             value = generate_TAC(node[4])
             tac.append(f"{nome}[{offset}] = {value}")
             return None
 
-        elif node[0] == 'ARRAY_ACCESS':
+        elif kind == 'ARRAY_ACCESS':
             nome = node[1]
             index = generate_TAC(node[2])
             temp = new_temp()
             tac.append(f"{temp} = {nome}[{index}]")
             return temp
 
-        elif node[0] == 'MATRIX_ACCESS':
+        elif kind == 'MATRIX_ACCESS':
             nome = node[1]
             row = generate_TAC(node[2])
             col = generate_TAC(node[3])
@@ -630,14 +721,14 @@ def generate_TAC(node):
             temp = new_temp()
             tac.append(f"{temp} = {nome}[{offset}]")
             return temp
-        
-        elif node[0] == 'DECL_VECTOR':
+
+        elif kind == 'DECL_VECTOR':
             nome = node[2]
             tamanho = node[3]
             tac.append(f"ALLOC {nome}[{tamanho}]")
             return None
 
-        elif node[0] == 'DECL_MATRIX':
+        elif kind == 'DECL_MATRIX':
             nome = node[2]
             linhas = node[3]
             colunas = node[4]
@@ -648,8 +739,171 @@ def generate_TAC(node):
             value = generate_TAC(node[1])
             tac.append(f"return {value}")
             return value
+        
+        
+# ---------------------------- Analisador MIPS ----------------------------
 
+def tac_to_riscv(tac_code):
+    riscv_code = []
+    data_section = [".data"]
+    text_section = [".text", ".globl main", "main:"]
+    
+    # Registradores temporários (t0-t6)
+    temp_regs = [f"t{i}" for i in range(7)]
+    next_reg = 0
+    
+    # Variáveis globais
+    global_vars = set()
+    
+    # Controle de funções
+    current_func = None
+    
+    # Otimização: rastrear últimos valores carregados
+    last_loaded = {}
 
+    for line in tac_code:
+        line = line.strip()
+        if not line:
+            continue
+            
+        if line.startswith("FUNC"):
+            func_name = line.split()[1]
+            current_func = func_name
+            text_section.append(f"\n{func_name}:")
+            # Prólogo da função
+            text_section.append("    addi sp, sp, -16")
+            text_section.append("    sw ra, 12(sp)")
+            text_section.append("    sw fp, 8(sp)")
+            text_section.append("    addi fp, sp, 16")
+            
+        elif line.startswith("END"):
+            func_name = line.split()[1]
+            # Epílogo da função
+            text_section.append("    lw ra, 12(sp)")
+            text_section.append("    lw fp, 8(sp)")
+            text_section.append("    addi sp, sp, 16")
+            if func_name == "main":
+                text_section.append("    li a7, 10")
+                text_section.append("    ecall")
+            else:
+                text_section.append("    ret")
+            current_func = None
+            
+        elif ' = ' in line:
+            left, right = line.split(' = ')
+            left = left.strip()
+            right = right.strip()
+            
+            # Atribuição de constante
+            if right.isdigit():
+                reg = temp_regs[next_reg]
+                text_section.append(f"    li {reg}, {right}")
+                if left in global_vars:
+                    text_section.append(f"    la {temp_regs[(next_reg+1)%7]}, {left}")
+                    text_section.append(f"    sw {reg}, 0({temp_regs[(next_reg+1)%7]})")
+                last_loaded[left] = reg
+                next_reg = (next_reg + 1) % 7
+                
+            # Operação aritmética
+            elif any(op in right for op in ['+', '-', '*', '/']):
+                ops = {'+': 'add', '-': 'sub', '*': 'mul', '/': 'div'}
+                for op, riscv_op in ops.items():
+                    if op in right:
+                        op1, op2 = right.split(op)
+                        op1 = op1.strip()
+                        op2 = op2.strip()
+                        
+                        # Carrega operandos
+                        reg1 = temp_regs[next_reg]
+                        if op1 in last_loaded:
+                            reg1 = last_loaded[op1]
+                        else:
+                            if op1.isdigit():
+                                text_section.append(f"    li {reg1}, {op1}")
+                            elif op1 in global_vars:
+                                text_section.append(f"    la {temp_regs[(next_reg+1)%7]}, {op1}")
+                                text_section.append(f"    lw {reg1}, 0({temp_regs[(next_reg+1)%7]})")
+                            next_reg = (next_reg + 1) % 7
+                            
+                        reg2 = temp_regs[next_reg]
+                        if op2 in last_loaded:
+                            reg2 = last_loaded[op2]
+                        else:
+                            if op2.isdigit():
+                                text_section.append(f"    li {reg2}, {op2}")
+                            elif op2 in global_vars:
+                                text_section.append(f"    la {temp_regs[(next_reg+1)%7]}, {op2}")
+                                text_section.append(f"    lw {reg2}, 0({temp_regs[(next_reg+1)%7]})")
+                            next_reg = (next_reg + 1) % 7
+                            
+                        # Executa operação
+                        reg_dest = temp_regs[next_reg]
+                        text_section.append(f"    {riscv_op} {reg_dest}, {reg1}, {reg2}")
+                        
+                        # Armazena resultado se for variável global
+                        if left in global_vars:
+                            text_section.append(f"    la {temp_regs[(next_reg+1)%7]}, {left}")
+                            text_section.append(f"    sw {reg_dest}, 0({temp_regs[(next_reg+1)%7]})")
+                        
+                        last_loaded[left] = reg_dest
+                        next_reg = (next_reg + 1) % 7
+                        break
+                        
+        elif line.startswith("if "):
+            parts = line.split()
+            cond = parts[1]
+            label = parts[3]
+            
+            reg = temp_regs[next_reg]
+            if cond in last_loaded:
+                reg = last_loaded[cond]
+            else:
+                if cond.isdigit():
+                    text_section.append(f"    li {reg}, {cond}")
+                elif cond in global_vars:
+                    text_section.append(f"    la {temp_regs[(next_reg+1)%7]}, {cond}")
+                    text_section.append(f"    lw {reg}, 0({temp_regs[(next_reg+1)%7]})")
+                next_reg = (next_reg + 1) % 7
+                
+            text_section.append(f"    bnez {reg}, {label}")
+            
+        elif line.startswith("goto"):
+            label = line.split()[1]
+            text_section.append(f"    j {label}")
+            
+        elif line.endswith(":"):
+            text_section.append(line)
+            
+        elif line.startswith("return"):
+            if len(line.split()) > 1:
+                value = line.split()[1]
+                reg = temp_regs[next_reg]
+                if value in last_loaded:
+                    reg = last_loaded[value]
+                    text_section.append(f"    mv a0, {reg}")
+                else:
+                    if value.isdigit():
+                        text_section.append(f"    li a0, {value}")
+                    elif value in global_vars:
+                        text_section.append(f"    la {temp_regs[next_reg]}, {value}")
+                        text_section.append(f"    lw a0, 0({temp_regs[next_reg]})")
+                        next_reg = (next_reg + 1) % 7
+            else:
+                text_section.append("    ret")
+                
+        elif line.startswith("ALLOC"):
+            parts = line.split()
+            var_name = parts[1].split('[')[0]
+            size = parts[1].split('[')[1].split(']')[0]
+            data_section.append(f"{var_name}: .word 0:{size}")
+            global_vars.add(var_name)
+    
+    # Junta todas as seções
+    riscv_code.extend(data_section)
+    riscv_code.append("")
+    riscv_code.extend(text_section)
+    
+    return '\n'.join(riscv_code)
 # ---------------------------- Analisador Semântico ----------------------------
 class SymbolTable:
     def __init__(self, parent=None):
@@ -972,15 +1226,21 @@ def analyze_code(code):
         temp_counter = 0
         generate_TAC(ast)
         
+        # Gera arquivo TAC
         with open('output.tac', 'w') as f:
             for instr in tac:
                 f.write(instr + '\n')
         
+        # Gera arquivo MIPS
+        mips_code = tac_to_riscv(tac)
+        with open('output.asm', 'w') as f:
+            f.write(mips_code)
+        
         sem_errors = "\n".join(semantic.errors)
         if sem_errors:
-            return f"{print_ast(ast)}\n{sem_errors}\n\nTAC:\n" + "\n".join(tac), ast
+            return f"{print_ast(ast)}\n{sem_errors}\n\nTAC:\n" + "\n".join(tac) + f"\n\nMIPS:\n{mips_code}", ast
         else:
-            return f"{print_ast(ast)}\n\nTAC:\n" + "\n".join(tac), ast
+            return f"{print_ast(ast)}\n\nTAC:\n" + "\n".join(tac) + f"\n\nMIPS:\n{mips_code}", ast
     except (ValueError, SyntaxError) as e:
         return str(e), None
 
